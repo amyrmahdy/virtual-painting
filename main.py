@@ -2,98 +2,102 @@ import cv2
 import time
 import numpy as np
 
-# parameters
-width = 640
-height = 480
-brightness = 50
 
-# read webcam
-webcam = cv2.VideoCapture(0)
+def detect_color(frame, color):
+    """
+    Detects a specified color in a frame and returns the masked frame.
+    """
+    frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-#set parameters
-webcam.set(3,width)
-webcam.set(4,height)
-webcam.set(10,brightness)
+    lower = np.array(color[0:3])
+    upper = np.array(color[3:6])
 
-points = []
+    mask = cv2.inRange(frame_hsv, lower, upper)
+    masked_frame = cv2.bitwise_and(frame, frame, mask=mask)
 
-colors = [ # BLUE
-    [81, 125, 255, 127, 255, 255],
+    return masked_frame
+
+
+def find_contours(masked_frame):
+    """
+    Finds contours in a masked frame and returns a list of contours.
+    """
+    frame_gray = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2GRAY)
+    frame_blur = cv2.GaussianBlur(frame_gray, (7, 7), 1)
+    frame_edges = cv2.Canny(frame_blur, 50, 50)
+
+    contours, _ = cv2.findContours(frame_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+
+    return contours
+
+
+def find_shape_center(contour):
+    """
+    Finds the shape of a contour and returns the number of corners and the bounding rectangle.
+    """
+    area = cv2.contourArea(contour)
+
+    if area > 50: # and area < 350
+        x, y, width, height = cv2.boundingRect(contour)
+        center_x, center_y = int(x + (width / 2)), int(y + (height / 2))
+
+        return center_x, center_y
+
+    return None, None
+
+
+def draw_points(frame, point):
+    """
+    Draws a point on a frame.
+    """
+    colors_to_draw = [
+        # BLUE
+        (255, 0, 0),
+        # YELLOW
+        (0, 255, 255)]
+
+    cv2.circle(frame, [point[0], point[1]], 10, colors_to_draw[point[2]], cv2.FILLED)
+
+
+points = [] 
+
+colors_to_detect = [ 
+    # BLUE
+   [ 80, 167, 0, 132, 255, 255],
     # YELLOW
     [24,86, 194, 65, 234, 255]
 ]
 
-drawColor  = [
-    (255,0,0),
-    (0,255,255)
-]
+video_capture = cv2.VideoCapture(0)
 
-# find shape and get points
-def find_shape_get_points(maskedFrame):
-    global points
-    # maskedFrame -> gray -> blur -> edges
-    frameGray = cv2.cvtColor(maskedFrame,cv2.COLOR_BGR2GRAY)
-    frameBlur = cv2.GaussianBlur(frameGray,(7,7),1)
-    frameEdges = cv2.Canny(frameBlur,50,50)
+width, height = 640, 480
+brightness = 0
 
-    # find contours
-    contours, hierarchy = cv2.findContours(frameEdges,cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        # if area of contour is more than 200, then that contour is important for us
-        if area > 200:
-            perimeter = cv2.arcLength(cnt,True)
-            corners = cv2.approxPolyDP(cnt,0.2 * perimeter, True)
-            # P.S:
-            # i would like to use number_corners and if it is equal 10 (that means its circle) then we will draw it
-            # but the problem of quality of our webcam and not good edge defining cant let me to do that
-            # so we can not use number_corners
-            number_corners = len(corners)
-            # find bounding rectangle
-            x_rec, y_rec, width_rec, height_rec = cv2.boundingRect(cnt)
-
-            center_x, center_y = int(x_rec+(width_rec/2)),int(y_rec+(height_rec/2)) 
-            points.append([center_x,center_y,colors.index(color)])
+video_capture.set(3, width)
+video_capture.set(4, height)
 
 
-# reading and showing frames
 while True:
-    # read each frame
-    success,frame = webcam.read()
-    
-    # SECTION : color detection
-    frameHsv = cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
+    success, frame = video_capture.read()    
 
-    for color in colors:
-        # define low bound
-        lower = np.array(
-            color[0:3] # h_min, s_min, v_min
-        )
-
-        # define up bound
-        upper = np.array(
-            color[3:6] # h_max, s_max, v_max
-        )
-
-        # build mask
-        mask = cv2.inRange(frameHsv,lower,upper)
-
-        # result
-        maskedFrame = cv2.bitwise_and(frame,frame,mask = mask)
-
-        # SECTION : find shape
-        find_shape_get_points(maskedFrame)
-
-    # draw points
+    for color in colors_to_detect:
+        masked_frame = detect_color(frame, color)
+        contours = find_contours(masked_frame)
+        for contour in contours:
+            x, y = find_shape_center(contour)
+            if x is not None or y is not None :
+                points.append([x, y, colors_to_detect.index(color)])
     if len(points) != 0:
         for point in points:
-            cv2.circle(frame,[point[0], point[1]],10,drawColor[point[2]],cv2.FILLED)
+            draw_points(frame,point)
+    
+    frame_h = cv2.flip(frame, 1)
 
-    # show
-    cv2.imshow("Result", frame)
+    cv2.imshow("Result", frame_h)
     if cv2.waitKey(1) == ord('q'):
         # quit
         break
     elif cv2.waitKey(1) == ord('c'):
         # clean marker
         points = []
+
